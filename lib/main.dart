@@ -8,16 +8,11 @@ import 'package:sensors_plus/sensors_plus.dart';
 import 'firebase_options.dart';
 import 'dart:async';
 
-
 void main() async {
-  // Initialize Flutter bindings
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialize Firebase
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  
   runApp(MyApp());
 }
 
@@ -28,9 +23,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Assessment Practice',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-      ),
+      theme: ThemeData(primarySwatch: Colors.blue),
       home: TestScreen(),
     );
   }
@@ -44,16 +37,11 @@ class TestScreen extends StatefulWidget {
 }
 
 class _TestScreenState extends State<TestScreen> {
-  // Firebase test variables
   String firebaseStatus = 'Not tested yet';
-  
-  // Location variables
   String locationStatus = 'Not requested yet';
   String currentLocation = '';
   String currentAddress = '';
   bool isLoadingLocation = false;
-  
-  // Sensor variables
   String accelerometerData = 'No data yet';
   
   FirebaseFirestore firestore = FirebaseFirestore.instance;
@@ -61,95 +49,114 @@ class _TestScreenState extends State<TestScreen> {
   @override
   void initState() {
     super.initState();
-    // Start listening to accelerometer
     listenToAccelerometer();
   }
 
-  // TEST 1: Firebase Connection
   Future<void> testFirebase() async {
     try {
-      setState(() {
-        firebaseStatus = '⏳ Testing Firebase...';
-      });
-
-      // Try to write to Firestore
+      setState(() => firebaseStatus = '⏳ Testing Firebase...');
       await firestore.collection('test').add({
         'message': 'Hello from Flutter!',
         'timestamp': FieldValue.serverTimestamp(),
       });
-      
-      setState(() {
-        firebaseStatus = '✅ Firebase connected! Data written successfully.';
-      });
+      setState(() => firebaseStatus = '✅ Firebase connected!');
     } catch (e) {
-      setState(() {
-        firebaseStatus = '❌ Firebase error: $e';
-      });
+      setState(() => firebaseStatus = '❌ Error: $e');
     }
   }
 
-  // TEST 2: Request Location Permission
   Future<void> requestLocationPermission() async {
-    setState(() {
-      locationStatus = '⏳ Requesting permission...';
-    });
-
+    setState(() => locationStatus = '⏳ Requesting permission...');
     PermissionStatus status = await Permission.location.request();
     
     if (status.isGranted) {
-      setState(() {
-        locationStatus = '✅ Permission granted! Now get location.';
-      });
+      setState(() => locationStatus = '✅ Permission granted!');
     } else if (status.isDenied) {
-      setState(() {
-        locationStatus = '❌ Permission denied. Try again.';
-      });
+      setState(() => locationStatus = '❌ Permission denied.');
     } else if (status.isPermanentlyDenied) {
-      setState(() {
-        locationStatus = '❌ Permanently denied. Open settings.';
-      });
+      setState(() => locationStatus = '❌ Permanently denied.');
       openAppSettings();
     }
   }
 
-  // TEST 3: Get Current Location (WITH TIMEOUT)
-  Future<void> getCurrentLocation() async {
-    if (isLoadingLocation) {
-      return; // Prevent multiple simultaneous requests
+  Future<void> useMockLocation() async {
+    setState(() {
+      isLoadingLocation = true;
+      locationStatus = '⏳ Using mock location (Cairo)...';
+      currentLocation = '';
+      currentAddress = '';
+    });
+
+    await Future.delayed(Duration(seconds: 1));
+
+    double latitude = 30.0444;
+    double longitude = 31.2357;
+
+    setState(() {
+      currentLocation = 'Lat: ${latitude.toStringAsFixed(4)}, Lon: ${longitude.toStringAsFixed(4)}';
+      locationStatus = '⏳ Getting address...';
+    });
+
+    try {
+      List<Placemark> placemarks = await placemarkFromCoordinates(
+        latitude, longitude,
+      ).timeout(Duration(seconds: 10));
+      
+      if (placemarks.isNotEmpty) {
+        Placemark place = placemarks[0];
+        setState(() {
+          currentAddress = '${place.street ?? 'Unknown'}, ${place.locality ?? 'Cairo'}, ${place.country ?? 'Egypt'}';
+        });
+      }
+    } catch (e) {
+      setState(() => currentAddress = 'Cairo, Egypt (mock)');
     }
+    
+    await firestore.collection('locations').add({
+      'latitude': latitude,
+      'longitude': longitude,
+      'address': currentAddress,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+    
+    setState(() {
+      locationStatus = '✅ Mock location saved to Firebase!';
+      isLoadingLocation = false;
+    });
+  }
+
+  Future<void> getCurrentLocation() async {
+    if (isLoadingLocation) return;
 
     setState(() {
       isLoadingLocation = true;
-      locationStatus = '⏳ Getting location... (this may take 30 seconds)';
+      locationStatus = '⏳ Getting real location (30s timeout)...';
       currentLocation = '';
       currentAddress = '';
     });
 
     try {
-      // Check if location services are enabled
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         setState(() {
-          locationStatus = '❌ Location services disabled. Enable in emulator settings.';
+          locationStatus = '❌ Location services disabled.';
           isLoadingLocation = false;
         });
         return;
       }
 
-      // Check permission
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         setState(() {
-          locationStatus = '❌ Permission not granted. Click "Request Permission" first.';
+          locationStatus = '❌ Permission not granted.';
           isLoadingLocation = false;
         });
         return;
       }
 
-      // Get position with TIMEOUT
       Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.low, // Changed to low for faster response
-        timeLimit: Duration(seconds: 100), // 30 second timeout
+        desiredAccuracy: LocationAccuracy.low,
+        timeLimit: Duration(seconds: 30),
       );
       
       setState(() {
@@ -157,26 +164,21 @@ class _TestScreenState extends State<TestScreen> {
         locationStatus = '⏳ Got coordinates! Getting address...';
       });
 
-      // Get address from coordinates (reverse geocoding) with timeout
       try {
         List<Placemark> placemarks = await placemarkFromCoordinates(
-          position.latitude,
-          position.longitude,
+          position.latitude, position.longitude,
         ).timeout(Duration(seconds: 10));
         
         if (placemarks.isNotEmpty) {
           Placemark place = placemarks[0];
           setState(() {
-            currentAddress = '${place.street ?? 'Unknown Street'}, ${place.locality ?? 'Unknown City'}, ${place.country ?? 'Unknown Country'}';
+            currentAddress = '${place.street ?? 'Unknown'}, ${place.locality ?? 'Unknown'}, ${place.country ?? 'Unknown'}';
           });
         }
       } catch (e) {
-        setState(() {
-          currentAddress = 'Could not get address (timeout or error)';
-        });
+        setState(() => currentAddress = 'Could not get address');
       }
       
-      // Save to Firebase
       await firestore.collection('locations').add({
         'latitude': position.latitude,
         'longitude': position.longitude,
@@ -185,13 +187,13 @@ class _TestScreenState extends State<TestScreen> {
       });
       
       setState(() {
-        locationStatus = '✅ Location saved to Firebase!';
+        locationStatus = '✅ Real location saved!';
         isLoadingLocation = false;
       });
       
     } on TimeoutException {
       setState(() {
-        locationStatus = '❌ Timeout! Location took too long. Try again or restart emulator.';
+        locationStatus = '❌ Timeout! Try mock location.';
         isLoadingLocation = false;
       });
     } catch (e) {
@@ -202,14 +204,11 @@ class _TestScreenState extends State<TestScreen> {
     }
   }
 
-  // TEST 4: Listen to Accelerometer
   void listenToAccelerometer() {
     accelerometerEvents.listen((AccelerometerEvent event) {
       if (mounted) {
         setState(() {
-          accelerometerData = 'X: ${event.x.toStringAsFixed(2)}, '
-                             'Y: ${event.y.toStringAsFixed(2)}, '
-                             'Z: ${event.z.toStringAsFixed(2)}';
+          accelerometerData = 'X: ${event.x.toStringAsFixed(2)}, Y: ${event.y.toStringAsFixed(2)}, Z: ${event.z.toStringAsFixed(2)}';
         });
       }
     });
@@ -218,32 +217,23 @@ class _TestScreenState extends State<TestScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Assessment Practice Tests'),
-      ),
+      appBar: AppBar(title: Text('Assessment Practice')),
       body: SingleChildScrollView(
         padding: EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Firebase Test Section
             Card(
               child: Padding(
                 padding: EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '🔥 Firebase Test',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    ),
+                    Text('🔥 Firebase Test', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                     SizedBox(height: 10),
                     Text(firebaseStatus),
                     SizedBox(height: 10),
-                    ElevatedButton(
-                      onPressed: testFirebase,
-                      child: Text('Test Firebase Connection'),
-                    ),
+                    ElevatedButton(onPressed: testFirebase, child: Text('Test Firebase')),
                   ],
                 ),
               ),
@@ -251,37 +241,31 @@ class _TestScreenState extends State<TestScreen> {
             
             SizedBox(height: 20),
             
-            // Location Test Section
             Card(
               child: Padding(
                 padding: EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '📍 Location Test',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    ),
+                    Text('📍 Location Test', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                     SizedBox(height: 10),
                     Text('Status: $locationStatus'),
-                    SizedBox(height: 5),
                     if (currentLocation.isNotEmpty) Text('Location: $currentLocation'),
                     if (currentAddress.isNotEmpty) Text('Address: $currentAddress'),
                     SizedBox(height: 10),
+                    ElevatedButton(onPressed: requestLocationPermission, child: Text('1. Request Permission')),
+                    SizedBox(height: 5),
                     ElevatedButton(
-                      onPressed: requestLocationPermission,
-                      child: Text('1. Request Permission'),
+                      onPressed: isLoadingLocation ? null : useMockLocation,
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                      child: Text(isLoadingLocation ? 'Loading...' : '2A. Mock Location (FAST)'),
                     ),
                     SizedBox(height: 5),
                     ElevatedButton(
                       onPressed: isLoadingLocation ? null : getCurrentLocation,
-                      child: Text(isLoadingLocation ? 'Loading...' : '2. Get Location'),
+                      child: Text(isLoadingLocation ? 'Loading...' : '2B. Real Location (SLOW)'),
                     ),
-                    if (isLoadingLocation)
-                      Padding(
-                        padding: EdgeInsets.only(top: 10),
-                        child: LinearProgressIndicator(),
-                      ),
+                    if (isLoadingLocation) Padding(padding: EdgeInsets.only(top: 10), child: LinearProgressIndicator()),
                   ],
                 ),
               ),
@@ -289,47 +273,15 @@ class _TestScreenState extends State<TestScreen> {
             
             SizedBox(height: 20),
             
-            // Sensor Test Section
             Card(
               child: Padding(
                 padding: EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '📱 Accelerometer (Live)',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    ),
+                    Text('📱 Accelerometer', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                     SizedBox(height: 10),
                     Text(accelerometerData),
-                    SizedBox(height: 10),
-                    Text(
-                      'Move your device to see changes!',
-                      style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            
-            SizedBox(height: 20),
-            
-            // Tips Section
-            Card(
-              color: Colors.blue.shade50,
-              child: Padding(
-                padding: EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '💡 Tips',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    SizedBox(height: 8),
-                    Text('• Set location in emulator: Click "..." → Location → Search "Cairo"'),
-                    Text('• If location times out, close and restart the emulator'),
-                    Text('• Check Firebase Console to see saved data'),
                   ],
                 ),
               ),
