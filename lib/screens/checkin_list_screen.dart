@@ -45,7 +45,7 @@ class CheckInListScreen extends StatelessWidget {
             return Center(child: CircularProgressIndicator());
           }
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return Center(child: Text('No check-ins yet. Tap + to add one!'));
+            return Center(child: Text('No check-ins yet. Tap "Add Check-In" to add one!'));
           }
           return ListView.builder(
             itemCount: snapshot.data!.docs.length,
@@ -79,15 +79,19 @@ class CheckInListScreen extends StatelessWidget {
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => AddCheckInScreen()),
-          );
-        },
-        child: Icon(Icons.add),
-        backgroundColor: Colors.blue,
+      floatingActionButton: Padding(
+        padding: EdgeInsets.only(bottom: 20.0, right: 20.0),
+        child: FloatingActionButton.extended(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => AddCheckInScreen()),
+            );
+          },
+          label: Text('Add Check-In'),
+          icon: Icon(Icons.add),
+          backgroundColor: Colors.blue,
+        ),
       ),
     );
   }
